@@ -7,7 +7,6 @@ import {IERC20Metadata} from "openzeppelin-contracts/contracts/token/ERC20/exten
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Strings} from "openzeppelin-contracts/contracts/utils/Strings.sol";
 import {CoreWriterLib} from "@hyper-evm-lib/src/CoreWriterLib.sol";
-import {HLConstants} from "@hyper-evm-lib/src/common/HLConstants.sol";
 
 import {ILeveragedToken} from "./interfaces/ILeveragedToken.sol";
 import {ScaledNumber} from "./utils/ScaledNumber.sol";
@@ -262,45 +261,21 @@ contract LeveragedToken is ILeveragedToken, ERC20Upgradeable {
         emit SetMintPaused(mintPaused_);
     }
 
-    function bridgeToPerp(uint256 amount_) external override onlyAgents {
+    function bridgeToCore(uint256 amount_) external override onlyAgents {
         if (amount_ == 0) revert InvalidAmount();
-        _checkpoint();
-        if (amount_ > baseAssetBalance()) revert InsufficientBalance();
-        CoreWriterLib.bridgeUsdcToCoreFor(address(this), amount_, HLConstants.DEFAULT_PERP_DEX);
-        _increaseBlockBridging(amount_);
-        emit BridgeToPerp(msg.sender, amount_);
-    }
-
-    function bridgeToSpot(uint256 amount_) external override onlyAgents {
-        if (amount_ == 0) revert InvalidAmount();
-        _checkpoint();
         if (amount_ > baseAssetBalance()) revert InsufficientBalance();
         CoreWriterLib.bridgeToCore(address(_baseAsset()), amount_);
         _increaseBlockBridging(amount_);
-        emit BridgeToSpot(msg.sender, amount_);
+        emit BridgeToCore(msg.sender, amount_);
     }
 
-    function bridgeFromPerp(uint256 amount_) external override onlyAgents {
+    function bridgeToEvm(uint256 amount_) external override onlyAgents {
         if (amount_ == 0) revert InvalidAmount();
-        CoreWriterLib.transferUsdClass(SafeCast.toUint64(amount_), false);
-        _bridgeFromSpot(amount_);
-        emit BridgeFromPerp(msg.sender, amount_);
-    }
-
-    function bridgeFromSpot(uint256 amount_) external override onlyAgents {
-        if (amount_ == 0) revert InvalidAmount();
-        _bridgeFromSpot(amount_);
-        emit BridgeFromSpot(msg.sender, amount_);
-    }
-
-    function _bridgeFromSpot(uint256 amount_) internal {
+        LeveragedTokenStorage storage $ = _getLeveragedTokenStorage();
+        uint256 spotUsdc_ = $.globalStorage.hyperliquidHandler().spotUsdc(address(this));
+        if (amount_ > spotUsdc_) revert InsufficientBalance();
         CoreWriterLib.bridgeToEvm(address(_baseAsset()), amount_);
-    }
-
-    function usdClassTransfer(uint64 amount_, bool toPerp_) external override onlyAgents {
-        if (amount_ == 0) revert InvalidAmount();
-        CoreWriterLib.transferUsdClass(amount_, toPerp_);
-        emit UsdClassTransfer(msg.sender, amount_, toPerp_);
+        emit BridgeToEvm(msg.sender, amount_);
     }
 
     function checkpoint(uint256 to_) external override onlyAgents {
@@ -311,23 +286,42 @@ contract LeveragedToken is ILeveragedToken, ERC20Upgradeable {
         _checkpoint();
     }
 
-    function setAgent(uint8 slot_, address agent_) external override onlyOwner {
-        if (slot_ >= _AGENT_SLOTS) revert InvalidAgentSlot();
+    function addAgent(address agent_) external override onlyOwner {
         if (agent_ == address(0)) revert InvalidAddress();
+        uint8 slot_ = _getAvailableSlot();
         LeveragedTokenStorage storage $ = _getLeveragedTokenStorage();
         IHyperliquidHandler hyperliquidHandler_ = $.globalStorage.hyperliquidHandler();
         if (!hyperliquidHandler_.coreUserExists(address(this))) revert LeveragedTokenNotActivated();
         if ($.agentCreatedAt[agent_] != 0) revert AlreadyCreated();
-        address currentAgent_ = $.agents[slot_];
         $.agents[slot_] = agent_;
         $.isAgent[agent_] = true;
         $.agentCreatedAt[agent_] = block.timestamp;
-        string memory agentName_ = string(abi.encodePacked("AGENT_", Strings.toString(slot_)));
+        string memory agentName_ = _getAgentName(slot_);
         CoreWriterLib.addApiWallet(agent_, agentName_);
-        emit SetAgent(slot_, agent_, agentName_);
-        if (currentAgent_ == address(0)) return;
-        delete $.isAgent[currentAgent_];
-        emit RemoveAgent(currentAgent_);
+        emit AddAgent(slot_, agent_);
+    }
+
+    function removeAgent(address agent_) external override onlyOwner {
+        if (agent_ == address(0)) revert InvalidAddress();
+        LeveragedTokenStorage storage $ = _getLeveragedTokenStorage();
+        uint8 slot_ = getAgentSlot(agent_);
+        delete $.agents[slot_];
+        delete $.isAgent[agent_];
+        string memory agentName_ = _getAgentName(slot_);
+        CoreWriterLib.addApiWallet(address(0), agentName_);
+        emit RemoveAgent(slot_, agent_);
+    }
+
+    function _getAvailableSlot() internal view returns (uint8) {
+        LeveragedTokenStorage storage $ = _getLeveragedTokenStorage();
+        for (uint8 i = 0; i < _AGENT_SLOTS; i++) {
+            if ($.agents[i] == address(0)) return i;
+        }
+        revert NoAvailableSlot();
+    }
+
+    function _getAgentName(uint8 slot_) internal pure returns (string memory) {
+        return string(abi.encodePacked("AGENT_", Strings.toString(slot_)));
     }
 
     function baseToLtAmount(uint256 baseAmount_) public view override returns (uint256) {
@@ -371,15 +365,15 @@ contract LeveragedToken is ILeveragedToken, ERC20Upgradeable {
             return;
         }
         if (to_ > block.timestamp) to_ = block.timestamp;
+        if ($.lastCheckpoint >= to_) return;
         uint256 timeElapsed_ = to_ - $.lastCheckpoint;
-        if (timeElapsed_ == 0) return;
         uint256 percentOfYear_ = (timeElapsed_ * 1e18) / 365 days;
         uint256 streamingFee_ = $.globalStorage.streamingFee();
         uint256 totalAssets_ = totalAssets();
         uint256 annualFee_ = totalAssets_.mul(streamingFee_).mul($.targetLeverage);
         uint256 periodFee_ = annualFee_.mul(percentOfYear_);
         _payStreamingFee(periodFee_);
-        if (periodFee_ == 0 && totalAssets_ > 0) return;
+        if (periodFee_ == 0 && totalAssets_ > 0 && streamingFee_ > 0) return;
         $.lastCheckpoint = to_;
     }
 
@@ -402,6 +396,7 @@ contract LeveragedToken is ILeveragedToken, ERC20Upgradeable {
         IReferrals referrals_ = $.globalStorage.referrals();
         _baseAsset().safeIncreaseAllowance(address(referrals_), feeAmount_);
         feeAmount_ -= referrals_.donateRebates(beneficiary_, feeAmount_);
+        _baseAsset().forceApprove(address(referrals_), 0);
         _payFees(feeAmount_);
     }
 

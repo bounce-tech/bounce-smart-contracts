@@ -17,24 +17,21 @@ interface ILeveragedToken is IERC20Metadata {
     error AlreadyRedeeming();
     error NotRedeeming();
     error CancelDelayNotElapsed();
-    error InvalidAgentSlot();
     error NotExecutor();
     error LeveragedTokenNotActivated();
+    error NoAvailableSlot();
 
     event Mint(address indexed minter, address indexed to, uint256 baseAmount, uint256 ltAmount);
     event Redeem(address indexed sender, address indexed to, uint256 ltAmount, uint256 baseAmount);
     event PrepareRedeem(address indexed sender, uint256 ltAmount);
     event ExecuteRedeem(address indexed user, uint256 ltAmount, uint256 baseAmount);
     event CancelRedeem(address indexed user, uint256 credit);
-    event BridgeToPerp(address indexed sender, uint256 amount);
-    event BridgeToSpot(address indexed sender, uint256 amount);
-    event BridgeFromPerp(address indexed sender, uint256 amount);
-    event BridgeFromSpot(address indexed sender, uint256 amount);
-    event UsdClassTransfer(address indexed sender, uint256 amount, bool toPerp);
-    event SetAgent(uint8 indexed slot, address indexed agent, string name);
-    event RemoveAgent(address indexed agent);
+    event AddAgent(uint8 indexed slot, address indexed agent);
+    event RemoveAgent(uint8 indexed slot, address indexed agent);
     event SetMintPaused(bool mintPaused);
     event SendFeesToTreasury(uint256 amount);
+    event BridgeToCore(address indexed sender, uint256 amount);
+    event BridgeToEvm(address indexed sender, uint256 amount);
 
     struct ExecuteRedemptionData {
         address user;
@@ -91,19 +88,15 @@ interface ILeveragedToken is IERC20Metadata {
 
     function cancelRedeem() external;
 
-    function bridgeToPerp(uint256 amount_) external;
+    function bridgeToCore(uint256 amount_) external;
 
-    function bridgeToSpot(uint256 amount_) external;
-
-    function bridgeFromPerp(uint256 amount_) external;
-
-    function bridgeFromSpot(uint256 amount_) external;
-
-    function usdClassTransfer(uint64 amount_, bool toPerp_) external;
+    function bridgeToEvm(uint256 amount_) external;
 
     function checkpoint(uint256 to_) external;
 
     function checkpoint() external;
 
-    function setAgent(uint8 slot_, address agent_) external;
+    function addAgent(address agent_) external;
+
+    function removeAgent(address agent_) external;
 }

@@ -77,6 +77,16 @@ interface ILeveragedTokenHelper {
         LeveragedTokenSnapshotData[] tokens;
     }
 
+    struct TotalAssets {
+        address leveragedTokenAddress;
+        uint256 totalAssets;
+    }
+
+    struct ExchangeRates {
+        address leveragedTokenAddress;
+        uint256 exchangeRate;
+    }
+
     function getLeveragedTokens() external view returns (LeveragedTokenData[] memory);
 
     function getLeveragedTokens(address user_, bool onlyHeld_) external view returns (LeveragedTokenData[] memory);
@@ -88,9 +98,15 @@ interface ILeveragedTokenHelper {
         view
         returns (LeveragedTokenPositionData memory);
 
+    function getLeveragedTokenPositionData() external view returns (LeveragedTokenPositionData[] memory);
+
     function getLeveragedTokensSnapshot() external view returns (LeveragedTokensSnapshot memory);
 
     function getLeveragedTokenBufferAssetValue(address leveragedTokenAddress_) external view returns (int256);
+
+    function getTotalAssets() external view returns (TotalAssets[] memory);
+
+    function getExchangeRates() external view returns (ExchangeRates[] memory);
 }
 
 contract LeveragedTokenHelper is ILeveragedTokenHelper {
@@ -190,6 +206,39 @@ contract LeveragedTokenHelper is ILeveragedTokenHelper {
         return agentData_;
     }
 
+    function getLeveragedTokenPositionData() external view override returns (LeveragedTokenPositionData[] memory) {
+        address[] memory lts_ = _GLOBAL_STORAGE.factory().lts();
+        LeveragedTokenPositionData[] memory positionData = new LeveragedTokenPositionData[](lts_.length);
+
+        IHyperliquidHandler hh_ = IHyperliquidHandler(_GLOBAL_STORAGE.hyperliquidHandler());
+        IERC20Metadata baseAsset_ = IERC20Metadata(_GLOBAL_STORAGE.baseAsset());
+        uint8 baseAssetDecimals_ = baseAsset_.decimals();
+
+        for (uint256 i = 0; i < lts_.length; i++) {
+            address leveragedTokenAddress_ = lts_[i];
+            ILeveragedToken lt_ = ILeveragedToken(leveragedTokenAddress_);
+            uint256 notionalValue_ = hh_.notionalUsdc(address(lt_));
+            uint256 credit_ = lt_.credit();
+            uint256 netValue_ = lt_.totalAssets().scaleFrom(baseAssetDecimals_) - credit_.mul(lt_.exchangeRate());
+            uint256 notionalValueScaled_ = notionalValue_.scaleFrom(baseAssetDecimals_);
+            uint256 effectiveLeverage_ = netValue_ == 0 ? 0 : notionalValueScaled_.div(netValue_);
+
+            positionData[i] = LeveragedTokenPositionData({
+                leveragedToken: leveragedTokenAddress_,
+                baseAssetContractBalance: lt_.baseAssetBalance(),
+                leveragedTokenCredit: credit_,
+                usdcSpotBalance: hh_.spotUsdc(leveragedTokenAddress_),
+                usdcPerpBalance: hh_.perpUsdc(leveragedTokenAddress_),
+                usdcMargin: hh_.marginUsedUsdc(leveragedTokenAddress_),
+                notionalValue: notionalValue_,
+                effectiveLeverage: effectiveLeverage_,
+                targetLeverage: lt_.targetLeverage()
+            });
+        }
+
+        return positionData;
+    }
+
     function getLeveragedTokenPositionData(address leveragedTokenAddress_)
         external
         view
@@ -235,17 +284,32 @@ contract LeveragedTokenHelper is ILeveragedTokenHelper {
         });
     }
 
-    function getLeveragedTokenBufferAssetValue(address leveragedTokenAddress_)
-        external
-        view
-        override
-        returns (int256)
-    {
+    function getLeveragedTokenBufferAssetValue(address leveragedTokenAddress_) external view override returns (int256) {
         ILeveragedToken lt_ = ILeveragedToken(leveragedTokenAddress_);
         uint8 baseAssetDecimals_ = IERC20Metadata(_GLOBAL_STORAGE.baseAsset()).decimals();
         uint256 baseAssetValue_ = lt_.baseAssetBalance().scaleFrom(baseAssetDecimals_);
         uint256 creditValue_ = lt_.credit().mul(lt_.exchangeRate());
         return int256(baseAssetValue_) - int256(creditValue_);
+    }
+
+    function getTotalAssets() external view override returns (TotalAssets[] memory) {
+        address[] memory lts_ = _GLOBAL_STORAGE.factory().lts();
+        TotalAssets[] memory totalAssets = new TotalAssets[](lts_.length);
+        for (uint256 i = 0; i < lts_.length; i++) {
+            ILeveragedToken lt_ = ILeveragedToken(lts_[i]);
+            totalAssets[i] = TotalAssets({leveragedTokenAddress: address(lt_), totalAssets: lt_.totalAssets()});
+        }
+        return totalAssets;
+    }
+
+    function getExchangeRates() external view override returns (ExchangeRates[] memory) {
+        address[] memory lts_ = _GLOBAL_STORAGE.factory().lts();
+        ExchangeRates[] memory exchangeRates = new ExchangeRates[](lts_.length);
+        for (uint256 i = 0; i < lts_.length; i++) {
+            ILeveragedToken lt_ = ILeveragedToken(lts_[i]);
+            exchangeRates[i] = ExchangeRates({leveragedTokenAddress: address(lt_), exchangeRate: lt_.exchangeRate()});
+        }
+        return exchangeRates;
     }
 
     function _getLeveragedTokenSnapshotData(address leveragedTokenAddress_)
