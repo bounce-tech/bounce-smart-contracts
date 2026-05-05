@@ -38,6 +38,7 @@ interface ILeveragedTokenHelper {
         uint256 exchangeRate;
         uint256 baseAssetBalance;
         uint256 totalAssets;
+        uint256 hyperliquidNotional;
         uint256 userCredit;
         uint256 credit;
         AgentData[3] agentData;
@@ -52,7 +53,6 @@ interface ILeveragedTokenHelper {
         uint256 leveragedTokenCredit;
         uint256 usdcSpotBalance;
         uint256 usdcPerpBalance;
-        uint256 usdcMargin;
         uint256 notionalValue;
         uint256 effectiveLeverage;
         uint256 targetLeverage;
@@ -65,7 +65,6 @@ interface ILeveragedTokenHelper {
         uint256 leveragedTokenCredit;
         uint256 usdcSpotBalance;
         uint256 usdcPerpBalance;
-        uint256 usdcMargin;
         uint256 totalAssets;
         uint256 notionalValue;
     }
@@ -167,6 +166,7 @@ contract LeveragedTokenHelper is ILeveragedTokenHelper {
             exchangeRate: lt_.exchangeRate(),
             baseAssetBalance: lt_.baseAssetBalance(),
             totalAssets: lt_.totalAssets(),
+            hyperliquidNotional: lt_.hyperliquidNotional(),
             userCredit: lt_.userCredit(user_),
             credit: lt_.credit(),
             agentData: _getAgentData(lt_),
@@ -217,7 +217,8 @@ contract LeveragedTokenHelper is ILeveragedTokenHelper {
         for (uint256 i = 0; i < lts_.length; i++) {
             address leveragedTokenAddress_ = lts_[i];
             ILeveragedToken lt_ = ILeveragedToken(leveragedTokenAddress_);
-            uint256 notionalValue_ = hh_.notionalUsdc(address(lt_));
+            uint32 perpDexIndex_ = lt_.perpDexIndex();
+            uint256 notionalValue_ = lt_.hyperliquidNotional();
             uint256 credit_ = lt_.credit();
             uint256 netValue_ = lt_.totalAssets().scaleFrom(baseAssetDecimals_) - credit_.mul(lt_.exchangeRate());
             uint256 notionalValueScaled_ = notionalValue_.scaleFrom(baseAssetDecimals_);
@@ -228,8 +229,7 @@ contract LeveragedTokenHelper is ILeveragedTokenHelper {
                 baseAssetContractBalance: lt_.baseAssetBalance(),
                 leveragedTokenCredit: credit_,
                 usdcSpotBalance: hh_.spotUsdc(leveragedTokenAddress_),
-                usdcPerpBalance: hh_.perpUsdc(leveragedTokenAddress_),
-                usdcMargin: hh_.marginUsedUsdc(leveragedTokenAddress_),
+                usdcPerpBalance: hh_.perpUsdc(leveragedTokenAddress_, perpDexIndex_),
                 notionalValue: notionalValue_,
                 effectiveLeverage: effectiveLeverage_,
                 targetLeverage: lt_.targetLeverage()
@@ -249,7 +249,8 @@ contract LeveragedTokenHelper is ILeveragedTokenHelper {
         IHyperliquidHandler hh_ = IHyperliquidHandler(_GLOBAL_STORAGE.hyperliquidHandler());
         IERC20Metadata baseAsset_ = IERC20Metadata(_GLOBAL_STORAGE.baseAsset());
         uint8 baseAssetDecimals_ = baseAsset_.decimals();
-        uint256 notionalValue_ = hh_.notionalUsdc(address(lt_));
+        uint32 perpDexIndex_ = lt_.perpDexIndex();
+        uint256 notionalValue_ = lt_.hyperliquidNotional();
         uint256 credit_ = lt_.credit();
         uint256 netValue_ = lt_.totalAssets().scaleFrom(baseAssetDecimals_) - credit_.mul(lt_.exchangeRate());
         uint256 notionalValueScaled_ = notionalValue_.scaleFrom(baseAssetDecimals_);
@@ -260,8 +261,7 @@ contract LeveragedTokenHelper is ILeveragedTokenHelper {
             baseAssetContractBalance: lt_.baseAssetBalance(),
             leveragedTokenCredit: credit_,
             usdcSpotBalance: hh_.spotUsdc(leveragedTokenAddress_),
-            usdcPerpBalance: hh_.perpUsdc(leveragedTokenAddress_),
-            usdcMargin: hh_.marginUsedUsdc(leveragedTokenAddress_),
+            usdcPerpBalance: hh_.perpUsdc(leveragedTokenAddress_, perpDexIndex_),
             notionalValue: notionalValue_,
             effectiveLeverage: effectiveLeverage_,
             targetLeverage: lt_.targetLeverage()
@@ -319,7 +319,8 @@ contract LeveragedTokenHelper is ILeveragedTokenHelper {
     {
         ILeveragedToken lt_ = ILeveragedToken(leveragedTokenAddress_);
         IHyperliquidHandler hh_ = IHyperliquidHandler(_GLOBAL_STORAGE.hyperliquidHandler());
-        uint256 notionalValue_ = hh_.notionalUsdc(address(lt_));
+        uint32 perpDexIndex_ = lt_.perpDexIndex();
+        uint256 notionalValue_ = lt_.hyperliquidNotional();
 
         return LeveragedTokenSnapshotData({
             leveragedToken: leveragedTokenAddress_,
@@ -327,8 +328,7 @@ contract LeveragedTokenHelper is ILeveragedTokenHelper {
             baseAssetContractBalance: lt_.baseAssetBalance(),
             leveragedTokenCredit: lt_.credit(),
             usdcSpotBalance: hh_.spotUsdc(leveragedTokenAddress_),
-            usdcPerpBalance: hh_.perpUsdc(leveragedTokenAddress_),
-            usdcMargin: hh_.marginUsedUsdc(leveragedTokenAddress_),
+            usdcPerpBalance: hh_.perpUsdc(leveragedTokenAddress_, perpDexIndex_),
             totalAssets: lt_.totalAssets(),
             notionalValue: notionalValue_
         });

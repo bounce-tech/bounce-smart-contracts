@@ -47,6 +47,8 @@ Anything in `helpers` is considered out of the scope of the core protocol
 - **Key Functions**:
   - `mint`, `redeem`, `prepareRedeem`, `executeRedemptions`: Mint/redeem leveraged tokens, handling all accounting and fees.
   - `exchangeRate`, `totalAssets`, `baseToLtAmount`, `ltToBaseAmount`: Core math for token valuation.
+  - `hyperliquidNotional`: Returns the notional value of the leveraged token's underlying position on Hyperliquid, scoped to its `perpDexIndex` (HIP-3 aware).
+  - `perpDexIndex`: The Hyperliquid perp dex index this leveraged token routes to (0 for the validator-operated dex, non-zero for HIP-3 dexes).
   - `_checkpoint`: Accrues streaming fees over time.
 
 ### Factory
@@ -55,6 +57,9 @@ Anything in `helpers` is considered out of the scope of the core protocol
 - **Integration**: Only owner can deploy; uses `LeveragedTokenProxy` and initializes new tokens with market data from `HyperliquidHandler`.
 - **Key Functions**:
   - `createLt`: Deploys a new leveraged token contract.
+  - `redeployLt`: Redeploys an existing leveraged token (e.g. to upgrade its proxy/implementation).
+  - `deleteLt`: Removes a leveraged token from the factory's registry (only when it has no remaining margin).
+  - `importFromFactory`: Imports the set of leveraged tokens from a previous `Factory` deployment, used for migrations.
   - `lts`: Returns all deployed leveraged token addresses.
 
 ### LeveragedTokenProxy
@@ -78,12 +83,11 @@ Anything in `helpers` is considered out of the scope of the core protocol
 - **Purpose**: On-chain interface to off-chain/precompiled data (e.g., market prices, positions, asset info).
 - **Integration**: Used by `LeveragedToken` and `Factory` for real-time market data.
 - **Key Functions**:
-  - `hyperliquidUsdc`: Returns the total value of relevant assets on Hyperliquid for the user in USDC denomination
   - `spotUsdc`: Returns the value that the user holds in spot USDC in Hyperliquid in USDC denomination
-  - `perpUsdc`: Returns the amount of value in the Hyperliquid perp position in USDC denomination
-  - `marginUsedUsdc`: Returns the amount of margin used on Hyperliquid in USDC denomination
-  - `notionalUsdc`: Returns the notional value of user's positions in USDC denomination
+  - `perpUsdc(user, perpDexIndex)`: Returns the amount of value in the user's Hyperliquid perp position on the given perp dex (HIP-3 aware) in USDC denomination
+  - `notionalUsdc(user, perpDexIndex)`: Returns the notional value of the user's positions on the given perp dex in USDC denomination
   - `coreUserExists`: Checks if a user exists on HyperCore
+  - Legacy helpers `hyperliquidUsdc`, `perpUsdc(user)`, `marginUsedUsdc`, and `notionalUsdc(user)` are retained for backwards compatibility but are deprecated; they hardcode the validator-operated perp dex (index 0) and should not be used for HIP-3 markets. Prefer composing `spotUsdc` with the `perpDexIndex_`-aware overloads above.
 
 ### Ownable
 
