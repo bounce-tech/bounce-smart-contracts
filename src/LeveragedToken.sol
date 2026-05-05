@@ -2,7 +2,6 @@
 pragma solidity 0.8.28;
 
 import {ERC20Upgradeable} from "openzeppelin-contracts-upgradeable/contracts/token/ERC20/ERC20Upgradeable.sol";
-import {SafeCast} from "openzeppelin-contracts/contracts/utils/math/SafeCast.sol";
 import {IERC20Metadata} from "openzeppelin-contracts/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Strings} from "openzeppelin-contracts/contracts/utils/Strings.sol";
@@ -26,6 +25,8 @@ contract LeveragedToken is ILeveragedToken, ERC20Upgradeable {
         0x308983bdf75389e7a3bc73dfa9e8cc5174cc0148cdb570998150a02ae8083000;
     uint8 internal constant _AGENT_SLOTS = 3;
     uint256 internal constant _CANCEL_REDEMPTION_DELAY = 1 hours;
+    uint32 internal constant _HIP_3_BASE = 100_000;
+    uint32 internal constant _HIP_3_DEX_STRIDE = 10_000;
 
     /// @custom:storage-location erc7201:leveraged.token.storage
     struct LeveragedTokenStorage {
@@ -45,6 +46,7 @@ contract LeveragedToken is ILeveragedToken, ERC20Upgradeable {
         address[_AGENT_SLOTS] agents;
         mapping(address => uint256) agentCreatedAt;
         mapping(address => bool) isAgent;
+        uint32 perpDexIndex;
     }
 
     function _getLeveragedTokenStorage() internal pure returns (LeveragedTokenStorage storage $) {
@@ -95,6 +97,7 @@ contract LeveragedToken is ILeveragedToken, ERC20Upgradeable {
         $.targetAsset = targetAsset_;
         $.targetLeverage = targetLeverage_;
         $.isLong = isLong_;
+        $.perpDexIndex = _getPerpDexIndex(marketId_);
     }
 
     function version() external pure override returns (string memory) {
@@ -115,6 +118,10 @@ contract LeveragedToken is ILeveragedToken, ERC20Upgradeable {
 
     function isLong() public view override returns (bool) {
         return _getLeveragedTokenStorage().isLong;
+    }
+
+    function perpDexIndex() public view override returns (uint32) {
+        return _getLeveragedTokenStorage().perpDexIndex;
     }
 
     function lastCheckpoint() public view override returns (uint256) {
@@ -218,7 +225,7 @@ contract LeveragedToken is ILeveragedToken, ERC20Upgradeable {
         for (uint256 i = 0; i < users_.length; i++) {
             address user_ = users_[i];
             bool wasExecuted_ = _executeRedemption(user_);
-            executeRedemptionData_[i] = ExecuteRedemptionData(user_, wasExecuted_);
+            executeRedemptionData_[i] = ExecuteRedemptionData({user: user_, wasExecuted: wasExecuted_});
         }
     }
 
@@ -345,6 +352,11 @@ contract LeveragedToken is ILeveragedToken, ERC20Upgradeable {
         return baseAssetBalance_ + hyperliquidAssets_;
     }
 
+    function hyperliquidNotional() public view override returns (uint256) {
+        LeveragedTokenStorage storage $ = _getLeveragedTokenStorage();
+        return $.globalStorage.hyperliquidHandler().notionalUsdc(address(this), $.perpDexIndex);
+    }
+
     function baseAssetBalance() public view override returns (uint256) {
         return _baseAsset().balanceOf(address(this));
     }
@@ -444,7 +456,10 @@ contract LeveragedToken is ILeveragedToken, ERC20Upgradeable {
 
     function _hyperliquidUsdc() internal view returns (uint256) {
         LeveragedTokenStorage storage $ = _getLeveragedTokenStorage();
-        return $.globalStorage.hyperliquidHandler().hyperliquidUsdc(address(this));
+        IHyperliquidHandler hyperliquidHandler_ = $.globalStorage.hyperliquidHandler();
+        uint256 spotUsdc_ = hyperliquidHandler_.spotUsdc(address(this));
+        uint256 perpUsdc_ = hyperliquidHandler_.perpUsdc(address(this), $.perpDexIndex);
+        return spotUsdc_ + perpUsdc_;
     }
 
     function _blockBridging() internal view returns (uint256) {
@@ -455,5 +470,13 @@ contract LeveragedToken is ILeveragedToken, ERC20Upgradeable {
     function _increaseBlockBridging(uint256 amount_) internal {
         LeveragedTokenStorage storage $ = _getLeveragedTokenStorage();
         $.blockBridging[block.number] += amount_;
+    }
+
+    function _getPerpDexIndex(uint32 marketId_) internal pure returns (uint32) {
+        if (marketId_ < _HIP_3_DEX_STRIDE) return 0;
+        if (marketId_ < _HIP_3_BASE) revert InvalidMarketId();
+        uint32 perpDexIndex_ = (marketId_ - _HIP_3_BASE) / _HIP_3_DEX_STRIDE;
+        if (perpDexIndex_ == 0) revert InvalidMarketId();
+        return perpDexIndex_;
     }
 }

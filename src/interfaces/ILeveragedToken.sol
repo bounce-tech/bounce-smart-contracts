@@ -20,6 +20,7 @@ interface ILeveragedToken is IERC20Metadata {
     error NotExecutor();
     error LeveragedTokenNotActivated();
     error NoAvailableSlot();
+    error InvalidMarketId();
 
     event Mint(address indexed minter, address indexed to, uint256 baseAmount, uint256 ltAmount);
     event Redeem(address indexed sender, address indexed to, uint256 ltAmount, uint256 baseAmount);
@@ -48,6 +49,8 @@ interface ILeveragedToken is IERC20Metadata {
 
     function isLong() external view returns (bool);
 
+    function perpDexIndex() external view returns (uint32);
+
     function lastCheckpoint() external view returns (uint256);
 
     function baseToLtAmount(uint256 baseAmount_) external view returns (uint256);
@@ -59,6 +62,8 @@ interface ILeveragedToken is IERC20Metadata {
     function baseAssetBalance() external view returns (uint256);
 
     function totalAssets() external view returns (uint256);
+
+    function hyperliquidNotional() external view returns (uint256);
 
     function userCredit(address user_) external view returns (uint256);
 
